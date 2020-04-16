@@ -65,7 +65,7 @@ class FrameioClient(object):
           self.page += 1
           self.results.append(r.json())
 
-          if page >= total_pages:
+          if page = total_pages:
             return self.results
 
           self._api_call(method, endpoint, payload, self.page)
