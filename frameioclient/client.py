@@ -9,18 +9,6 @@ if sys.version_info.major >= 3:
 else:
   from .py2_uploader import FrameioUploader
 
-class PaginatedResponse(object):
-  def __init__(self, results=[], page=0, page_size=0, total=0, total_pages=0):
-    super(PaginatedResponse, self).__init__()
-    self.results = results
-    self.page = int(page)
-    self.page_size = int(page_size)
-    self.total = int(total)
-    self.total_pages = int(total_pages)
-  
-  def __iter__(self):
-    return iter(self.results)
-
 class FrameioClient(object):
   def __init__(self, token, host='https://api.frame.io'):
     self.token = token
@@ -32,7 +20,9 @@ class FrameioClient(object):
         method_whitelist=["POST", "OPTIONS", "GET"]
     )
     self.client_version = self._get_version()
-
+    self.results = list()
+    self.page = 1
+  
   def _get_version(self):
     try:
         from importlib import metadata
@@ -42,7 +32,7 @@ class FrameioClient(object):
 
     return metadata.version('frameioclient')
 
-  def _api_call(self, method, endpoint, payload={}):
+  def _api_call(self, method, endpoint, payload={}, page=1):
     url = '{}/v2{}'.format(self.host, endpoint)
 
     headers = {
@@ -55,6 +45,10 @@ class FrameioClient(object):
     http = requests.Session()
     http.mount("https://", adapter)
 
+    # Handle pagination here by advancing query param for page
+    if page > 1:
+      url += "?page={}".format(page)
+
     r = http.request(
       method,
       url,
@@ -64,14 +58,17 @@ class FrameioClient(object):
 
     if r.ok:
       if r.headers.get('page-number'):
-        if int(r.headers.get('total-pages')) > 1:
-          return PaginatedResponse(
-            results=r.json(), 
-            page=r.headers['page-number'], 
-            page_size=r.headers['per-page'],
-            total_pages=r.headers['total-pages'],
-            total=r.headers['total']
-          )
+        total_pages = int(r.headers.get('total-pages'))
+        page = int(r.headers.get('page-number'))
+
+        if total_pages > 1:
+          self.page += 1
+          self.results.append(r.json())
+
+          if page >= total_pages:
+            return self.results
+
+          self._api_call(method, endpoint, payload, self.page)
 
       return r.json()
 
