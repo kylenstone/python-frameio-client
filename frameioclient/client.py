@@ -3,6 +3,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from requests.packages.urllib3.util.retry import Retry
 from .download import FrameioDownloader
+from pprint import pprint
 
 if sys.version_info.major >= 3:
   from .py3_uploader import FrameioUploader
@@ -20,8 +21,7 @@ class FrameioClient(object):
         method_whitelist=["POST", "OPTIONS", "GET"]
     )
     self.client_version = self._get_version()
-    self.results = list()
-    self.page = 1
+    self.next_url = None
   
   def _get_version(self):
     try:
@@ -32,7 +32,7 @@ class FrameioClient(object):
 
     return metadata.version('frameioclient')
 
-  def _api_call(self, method, endpoint, payload={}, page=1):
+  def _api_call(self, method, endpoint, payload={}):
     url = '{}/v2{}'.format(self.host, endpoint)
 
     headers = {
@@ -45,10 +45,6 @@ class FrameioClient(object):
     http = requests.Session()
     http.mount("https://", adapter)
 
-    # Handle pagination here by advancing query param for page
-    if page > 1:
-      url += "?page={}".format(page)
-
     r = http.request(
       method,
       url,
@@ -58,21 +54,57 @@ class FrameioClient(object):
 
     if r.ok:
       if r.headers.get('page-number'):
-        total_pages = int(r.headers.get('total-pages'))
-        page = int(r.headers.get('page-number'))
+        if int(r.headers.get('total-pages')) > 1:
 
-        if total_pages > 1:
-          self.page += 1
-          self.results.append(r.json())
+          results = r.json()
 
-          if page = total_pages:
-            return self.results
+          additional_results = list(
+            self.get_addtl_pages(
+              http,
+              r,
+              method,
+              payload,
+              headers,
+              int(r.headers.get('page-number')), 
+              int(r.headers.get('total-pages'))
+            )
+          )
 
-          self._api_call(method, endpoint, payload, self.page)
+          if len(additional_results) > 1:
+            for potential_result_set in additional_results:
+              for result in potential_result_set:
+                results.append(result)
+          else:
+            for result in additional_results[0]:
+              results.append(result)
+
+          return results
 
       return r.json()
 
     return r.raise_for_status()
+
+  def get_addtl_pages(self, http, r, method, payload, headers, page_number, total_pages):
+
+      for i in range(page_number, total_pages):
+        print("Checking page {} of {}".format(i, total_pages))
+
+        try:
+          next_url = r.links['next']['url']
+        except KeyError:
+          print("Out of pages to check, breaking and returning...")
+          break
+
+        r = http.request(
+            method,
+            url=next_url,
+            json=payload,
+            headers=headers
+          )
+
+        yield r.json()
+
+        print(next_url)
 
   def get_me(self):
     """
