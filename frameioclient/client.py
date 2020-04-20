@@ -20,10 +20,10 @@ class FrameioClient(object):
         status_forcelist=[429],
         method_whitelist=["POST", "OPTIONS", "GET"]
     )
-    self.client_version = self._get_version()
+    self.client_version = self._get_client_version()
     self.next_url = None
   
-  def _get_version(self):
+  def _get_client_version(self):
     try:
         from importlib import metadata
     except ImportError:
