@@ -32,7 +32,7 @@ class FrameioClient(object):
 
     return metadata.version('frameioclient')
 
-  def _api_call(self, method, endpoint, payload={}):
+  def _api_call(self, method, endpoint, page_size=None, page=None, payload={}):
     url = '{}/v2{}'.format(self.host, endpoint)
 
     headers = {
@@ -45,6 +45,10 @@ class FrameioClient(object):
     http = requests.Session()
     http.mount("https://", adapter)
 
+    # If a page size is passed, we use it - otherwise ignore this
+    if page_size:
+      url += "?page_size={}".format(page_size)
+
     r = http.request(
       method,
       url,
@@ -55,21 +59,26 @@ class FrameioClient(object):
     if r.ok:
       if r.headers.get('page-number'):
         if int(r.headers.get('total-pages')) > 1:
-
           results = r.json()
 
-          additional_results = list(
-            self.get_addtl_pages(
-              http,
-              r,
-              method,
-              payload,
-              headers,
-              int(r.headers.get('page-number')), 
-              int(r.headers.get('total-pages'))
-            )
-          )
+          # If a specific page is requested, then return immediately - otherwise \
+          # go grab the rest of the pages!
+          if page:
+            return results
 
+          additional_results = list(self.get_addtl_pages(
+                http,
+                r,
+                method,
+                payload,
+                headers,
+                int(r.headers.get('page-number')),
+                int(r.headers.get('total-pages'))
+              )
+            )
+
+          # Depending on how many pages are returned, it's either a list of lists or \
+          # it's a single result and we don't need to iterate over result sets
           if len(additional_results) > 1:
             for potential_result_set in additional_results:
               for result in potential_result_set:
@@ -142,26 +151,6 @@ class FrameioClient(object):
     """
     endpoint = '/teams'
     return self._api_call('get', endpoint, kwargs)
-
-  def get_projects(self, team_id, **kwargs):
-    """
-    Get projects owned by the team.
-
-    :Args:
-      team_id (string): The team id.
-    """
-    endpoint = '/teams/{}/projects'.format(team_id)
-    return self._api_call('get', endpoint, kwargs)
-  
-  def get_project(self, project_id):
-    """
-    Get an individual project
-
-    :Args:
-      project_id (string): the project's id
-    """
-    endpoint = '/projects/{}'.format(project_id)
-    return self._api_call('get', endpoint)
   
   def get_collaborators(self, project_id, **kwargs):
     """
@@ -183,6 +172,26 @@ class FrameioClient(object):
     endpoint = "/projects/{}/pending_collaborators".format(project_id)
     return self._api_call('get', endpoint, kwargs)
 
+  def get_projects(self, team_id, **kwargs):
+    """
+    Get projects owned by the team.
+
+    :Args:
+      team_id (string): The team id.
+    """
+    endpoint = '/teams/{}/projects'.format(team_id)
+    return self._api_call('get', endpoint, kwargs)
+
+  def get_project(self, project_id):
+    """
+    Get a project by id.
+
+    :Args:
+      project_id (string): The project id.
+    """
+    endpoint = '/projects/{}'.format(project_id)
+    return self._api_call('get', endpoint)
+
   def create_project(self, team_id, **kwargs):
     """
     Create a project.
@@ -201,16 +210,6 @@ class FrameioClient(object):
     """
     endpoint = '/teams/{}/projects'.format(team_id)
     return self._api_call('post', endpoint, payload=kwargs)
-
-  def get_project(self, project_id):
-    """
-    Get a project by id.
-
-    :Args:
-      project_id (string): The project id.
-    """
-    endpoint = '/projects/{}'.format(project_id)
-    return self._api_call('get', endpoint)
 
   def get_asset(self, asset_id):
     """
